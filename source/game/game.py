@@ -726,7 +726,7 @@ class Game:
         try:
             logger.info("OpenAI API 호출하여 서사 요약 생성 요청 중...")
             response = client.chat.completions.create(
-                model="gpt-4-turbo", # 혹은 최신 GPT-4 모델
+                model="gpt-4o", # 혹은 최신 GPT-4 모델
                 messages=[
                     {"role": "system", "content": "당신은 복잡한 게임 로그를 분석하여 흥미로운 이야기나 칼럼으로 재구성하는 뛰어난 작가입니다."},
                     {"role": "user", "content": narrative_prompt}

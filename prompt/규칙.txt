@@ -1,0 +1,11 @@
+## 게임: 한정 가위바위보 규칙 요약
+- 시작 조건: 별 {config.INITIAL_STARS}개, 가위/바위/보 카드 각 {config.INITIAL_CARDS_EACH_TYPE}장 (총 {config.INITIAL_CARDS_EACH_TYPE*3}장).
+- 진행: 다른 플레이어와 1:1 대면 게임 또는 자원 거래.
+- 게임(가위바위보): 승리 시 상대 별 1개 획득, 패배 시 별 1개 상실. 무승부 시 변화 없음. 사용한 카드는 소멸.
+- 거래: 카드, 별, 현금 등 자유롭게 교환 가능 (상호 동의 필요).
+- 생존 조건: 총 {config.MAX_TURNS*config.TIME_PER_TURN}분 ({config.MAX_TURNS}턴) 안에 1) 모든 카드 소진, 2) 별 3개 이상 보유.
+- 탈락 조건: 별 0개 이하가 되거나, 제한 시간 초과 시.
+- 목표: 생존 조건을 만족하고 게임에서 나가는 것 ('declare_out_of_game' 함수 사용).
+- 상호작용: `propose_trade`, `propose_match` 함수로 제안. 제안 받은 경우 AI가 응답.
+- 행동 없음: `do_nothing` 함수 사용 가능.
+- 시간: 매 턴 10분씩 감소.

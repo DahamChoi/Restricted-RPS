@@ -1,0 +1,36 @@
+{"role": "system", "content": target_player.persona_prompt + "\n\n" + self.get_game_rules_summary()},
+{"role": "user", "content": f"""
+## 거래 제안 도착
+플레이어 '{proposing_player.name}'로부터 다음 내용의 거래 제안을 받았습니다:
+
+**{proposing_player.name}가 당신에게 주려는 것:**
+- 별: {proposal_args.get('give_stars', 0)}개
+- 바위 카드: {proposal_args.get('give_rock', 0)}장
+- 가위 카드: {proposal_args.get('give_scissors', 0)}장
+- 보 카드: {proposal_args.get('give_paper', 0)}장
+- 현금: {proposal_args.get('give_money', 0)} 엔
+
+**{proposing_player.name}가 당신에게 받으려는 것:**
+- 별: {proposal_args.get('receive_stars', 0)}개
+- 바위 카드: {proposal_args.get('receive_rock', 0)}장
+- 가위 카드: {proposal_args.get('receive_scissors', 0)}장
+- 보 카드: {proposal_args.get('receive_paper', 0)}장
+- 현금: {proposal_args.get('receive_money', 0)} 엔
+
+## 현재 당신의 상태 ({target_player.name})
+- 별: {target_player.stars}개
+- 카드: 바위 {target_player.cards['rock']}장, 가위 {target_player.cards['scissors']}장, 보 {target_player.cards['paper']}장 (총 {target_player.get_total_cards()}장)
+- 현금: {target_player.money} 엔
+
+## 당신의 결정
+이 거래 제안을 수락하시겠습니까? 당신의 생존 목표와 현재 자원 상황, {proposing_player.name}의 의도 등을 고려하여 신중하게 판단하세요.
+반드시 'accept' 또는 'reject' 중 하나로만 응답하고, 그 이유를 간략하게 설명해주세요.
+게임의 생존을 충족했다면, 남은 자원으로 돈을 최대한으로 획득해야합니다.
+
+**응답 형식:**
+```json
+{{
+    "decision": "accept | reject",
+    "reasoning": "거래를 수락/거절하는 이유..."
+}}
+```
