@@ -96,6 +96,7 @@ class OpenAI_Agent:
         dashboard_info = self.game.get_dashboard_info()
 
         # 2. 프롬프트 구성
+        action_history = "\n".join(self.player.action_log) if self.player.action_log else "아직 기록된 행동이 없습니다."
         messages = [
             {"role": "system", "content": self.player.persona_prompt + "\n\n" + self.game.get_game_rules_summary()},
             {"role": "user", "content": f"""
@@ -104,6 +105,9 @@ class OpenAI_Agent:
             - 카드: 바위 {my_items['rock_card_number']}장, 가위 {my_items['scissors_card_number']}장, 보 {my_items['paper_card_number']}장 (총 {self.player.get_total_cards()}장)
             - 현금: {my_items['money']} 엔 {'(초기 대출금 ' + str(self.player.initial_loan) + ' 엔 포함)' if self.player.initial_loan > 0 else ''}
             - 현재 상태: {self.player.status}
+
+            ## 당신의 과거 행동 기록
+            {action_history}
 
             ## 현재 게임 상황 (전광판)
             - 생존 플레이어 수: {dashboard_info['alive_users']}명

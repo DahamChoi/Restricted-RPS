@@ -1,4 +1,3 @@
-
 from typing import List, Dict, Any, Optional
 from custom_logger import logger, logger_final
 from player.player import Player
@@ -297,6 +296,9 @@ class Game:
         if not target_player.is_active(): return False # 응답할 수 없는 상태
 
         # 대상 플레이어에게 상황 전달 및 결정 요청
+        # 액션 로그를 f-string 밖에서 미리 포맷합니다.
+        action_history = "\n".join(target_player.action_log) if target_player.action_log else "아직 기록된 행동이 없습니다."
+
         messages = [
             {"role": "system", "content": target_player.persona_prompt + "\n\n" + self.get_game_rules_summary()},
             {"role": "user", "content": f"""
@@ -322,8 +324,11 @@ class Game:
             - 카드: 바위 {target_player.cards['rock']}장, 가위 {target_player.cards['scissors']}장, 보 {target_player.cards['paper']}장 (총 {target_player.get_total_cards()}장)
             - 현금: {target_player.money} 엔
 
+            ## 당신의 과거 행동 기록
+            {action_history}
+
             ## 당신의 결정
-            이 거래 제안을 수락하시겠습니까? 당신의 생존 목표와 현재 자원 상황, {proposing_player.name}의 의도 등을 고려하여 신중하게 판단하세요.
+            이 거래 제안을 수락하시겠습니까? 당신의 생존 목표와 현재 자원 상황, {proposing_player.name}의 의도, 당신의 과거 행동 등을 고려하여 신중하게 판단하세요.
             반드시 'accept' 또는 'reject' 중 하나로만 응답하고, 그 이유를 간략하게 설명해주세요.
             게임의 생존을 충족했다면, 남은 자원으로 돈을 최대한으로 획득해야합니다.
             """}
@@ -383,6 +388,7 @@ class Game:
              return None
 
         # 대상 플레이어에게 상황 전달 및 결정 요청
+        action_history_str = "\n".join(target_player.action_log) if target_player.action_log else "아직 기록된 행동이 없습니다."
         messages = [
             {"role": "system", "content": target_player.persona_prompt + "\n\n" + self.get_game_rules_summary()},
             {"role": "user", "content": f"""
@@ -397,9 +403,12 @@ class Game:
             - 현금: {target_player.money} 엔
             - 사용 가능한 카드: {', '.join(available_cards) if available_cards else '없음'}
 
+            ## 당신의 과거 행동 기록
+            {action_history_str}
+
             ## 당신의 결정
             이 게임 제안을 수락하시겠습니까? 만약 수락한다면, 어떤 카드를 내시겠습니까? ({', '.join(available_cards)} 중에서 선택)
-            당신의 생존 목표, 현재 자원, {proposing_player.name}의 상태 등을 고려하여 전략적으로 판단하세요.
+            당신의 생존 목표, 현재 자원, {proposing_player.name}의 상태, 당신의 과거 행동 등을 고려하여 전략적으로 판단하세요.
             거절할 수도 있습니다. 하지만, 거절을 반복할 경우 카드를 제한시간안에 소모하지 못해 게임에 패배할 수 있습니다.
             """}
         ]
@@ -600,62 +609,6 @@ class Game:
         logger.info("="*30)
         survivors = []
         eliminated = []
-        for player in self.players.values():
-            final_status_reason = player.action_log[-1] if player.action_log else "N/A" # 마지막 로그에서 상태 변경 이유 추정
-            log_line = f"- {player.name}: Status={player.status}, Stars={player.stars}, Cards={player.get_total_cards()}, Money={player.money}"
-                     # f", Last Action/Reason: {final_status_reason}"
-            if player.status == config.PLAYER_STATUS_OUT_SUCCESS:
-                survivors.append(log_line)
-            else:
-                eliminated.append(log_line)
-
-        logger.info("--- Survivors ---")
-        if survivors:
-            for line in survivors: logger.info(line)
-        else:
-            logger.info("No survivors.")
-
-        logger.info("--- Eliminated ---")
-        if eliminated:
-            for line in eliminated: logger.info(line)
-        else:
-            logger.info("No players eliminated (should not happen if game ended).")
-
-        # 상세 로그 출력
-        # for name, player in self.players.items():
-        #     logger_final.info(f"\n--- Action Log for {name} ---")
-        #     for log in player.action_log:
-        #         logger_final.info(log)
-
-    def get_game_rules_summary(self) -> str:
-        """Agent에게 제공할 게임 규칙 요약"""
-        return f"""
-        ## 게임: 한정 가위바위보 규칙 요약
-        - 시작 조건: 별 {config.INITIAL_STARS}개, 가위/바위/보 카드 각 {config.INITIAL_CARDS_EACH_TYPE}장 (총 {config.INITIAL_CARDS_EACH_TYPE*3}장).
-        - 진행: 다른 플레이어와 1:1 대면 게임 또는 자원 거래.
-        - 게임(가위바위보): 승리 시 상대 별 1개 획득, 패배 시 별 1개 상실. 무승부 시 변화 없음. 사용한 카드는 소멸.
-        - 거래: 카드, 별, 현금 등 자유롭게 교환 가능 (상호 동의 필요).
-        - 생존 조건: 총 {config.MAX_TURNS*config.TIME_PER_TURN}분 ({config.MAX_TURNS}턴) 안에 1) 모든 카드 소진, 2) 별 3개 이상 보유.
-        - 탈락 조건: 별 0개 이하가 되거나, 제한 시간 초과 시.
-        - 목표: 생존 조건을 만족하고 게임에서 나가는 것 ('declare_out_of_game' 함수 사용).
-        - 상호작용: `propose_trade`, `propose_match` 함수로 제안. 제안 받은 경우 AI가 응답.
-        - 행동 없음: `do_nothing` 함수 사용 가능.
-        - 시간: 매 턴 10분씩 감소.
-        """
-
-    def run_simulation(self):
-        """게임 시뮬레이션 실행"""
-        while not self.game_over:
-            self.progress_turn()
-            # time.sleep(1)
-
-    def log_final_results(self):
-        """게임 종료 시 최종 결과 로깅"""
-        logger.info("="*30)
-        logger.info("Final Game Results")
-        logger.info("="*30)
-        survivors = []
-        eliminated = []
         # 상세 로그를 위해 플레이어별 최종 상태 저장
         self.final_player_statuses = {}
         for player in self.players.values():
@@ -684,7 +637,29 @@ class Game:
         if eliminated:
             for line in eliminated: logger.info(line)
         else:
-            logger.info("No players eliminated (error in logic?).")
+            logger.info("No players eliminated (should not happen if game ended).")
+
+    def get_game_rules_summary(self) -> str:
+        """Agent에게 제공할 게임 규칙 요약"""
+        return f"""
+        ## 게임: 한정 가위바위보 규칙 요약
+        - 시작 조건: 별 {config.INITIAL_STARS}개, 가위/바위/보 카드 각 {config.INITIAL_CARDS_EACH_TYPE}장 (총 {config.INITIAL_CARDS_EACH_TYPE*3}장).
+        - 진행: 다른 플레이어와 1:1 대면 게임 또는 자원 거래.
+        - 게임(가위바위보): 승리 시 상대 별 1개 획득, 패배 시 별 1개 상실. 무승부 시 변화 없음. 사용한 카드는 소멸.
+        - 거래: 카드, 별, 현금 등 자유롭게 교환 가능 (상호 동의 필요).
+        - 생존 조건: 총 {config.MAX_TURNS*config.TIME_PER_TURN}분 ({config.MAX_TURNS}턴) 안에 1) 모든 카드 소진, 2) 별 3개 이상 보유.
+        - 탈락 조건: 별 0개 이하가 되거나, 제한 시간 초과 시.
+        - 목표: 생존 조건을 만족하고 게임에서 나가는 것 ('declare_out_of_game' 함수 사용).
+        - 상호작용: `propose_trade`, `propose_match` 함수로 제안. 제안 받은 경우 AI가 응답.
+        - 행동 없음: `do_nothing` 함수 사용 가능.
+        - 시간: 매 턴 10분씩 감소.
+        """
+
+    def run_simulation(self):
+        """게임 시뮬레이션 실행"""
+        while not self.game_over:
+            self.progress_turn()
+            # time.sleep(1)
 
     def generate_narrative_summary(self):
         """AI를 사용하여 게임의 서사적 요약을 생성합니다."""
