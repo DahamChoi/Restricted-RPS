@@ -27,9 +27,10 @@ functions_available_to_agent = [
                     "receive_scissors": {"type": "integer", "description": "내가 받으려는 가위 카드의 개수", "default": 0},
                     "receive_paper": {"type": "integer", "description": "내가 받으려는 보 카드의 개수", "default": 0},
                     "receive_money": {"type": "integer", "description": "내가 받으려는 현금", "default": 0},
-                    "reasoning": {"type": "string", "description": "이 거래를 제안하는 이유 또는 전략적 판단."}
+                    "internal_reasoning": {"type": "string", "description": "이 거래를 제안하는 실제 이유 또는 전략적 판단 (내부 기록용)."},
+                    "public_reasoning": {"type": "string", "description": "거래를 제안하며 상대방에게 전달할 메시지."}
                 },
-                "required": ["target_player_name", "reasoning"]
+                "required": ["target_player_name", "internal_reasoning", "public_reasoning"]
             }
         }
     },
@@ -43,9 +44,10 @@ functions_available_to_agent = [
                 "properties": {
                     "target_player_name": {"type": "string", "description": "게임을 제안할 상대방 플레이어의 이름"},
                     "card_to_play": {"type": "string", "enum": ["rock", "scissors", "paper"], "description": "내가 이번 게임에 사용할 카드"},
-                    "reasoning": {"type": "string", "description": "이 게임을 제안하고 이 카드를 선택한 이유 또는 전략적 판단."}
+                    "internal_reasoning": {"type": "string", "description": "이 게임을 제안하고 이 카드를 선택한 실제 이유 또는 전략적 판단 (내부 기록용)."},
+                    "public_reasoning": {"type": "string", "description": "게임을 제안하며 상대방에게 전달할 메시지."}
                 },
-                "required": ["target_player_name", "card_to_play", "reasoning"]
+                "required": ["target_player_name", "card_to_play", "internal_reasoning", "public_reasoning"]
             }
         }
     },
@@ -123,6 +125,7 @@ class OpenAI_Agent:
             - 생존 조건을 만족하면 게임에서 나갈 수 있습니다 ('declare_out_of_game')
                 - 만약 생존 조건보다 더 많은 별을 가지고 있다면 게임에 나가지 않고, 이를 다른 사람에게 팔아 이득을 취할 수도 있습니다.
             - 당신의 결정과 그 이유를 명확히 설명하고, 반드시 정의된 함수 중 하나를 호출하는 형식으로 응답해주세요.
+            - **주의:** 거래나 게임 제안 시, `internal_reasoning`에는 당신의 실제 전략과 판단을 상세히 기록하고, `public_reasoning`에는 상대방에게 보여줄 간결하고 설득력 있는 메시지를 작성하세요. (예: "이 거래는 우리 모두에게 이득이 될 것입니다." 또는 "카드 소진을 위해 게임이 필요합니다.")
             """}
             #             - 전략적으로 판단하여 이번 턴에 어떤 행동을 할지 결정하세요. 아무것도 하지 않을 수도 있습니다 ('do_nothing').
         ]
@@ -148,16 +151,35 @@ class OpenAI_Agent:
                 function_call_data = tool_calls[0].function # 첫 번째 함수 호출만 처리한다고 가정
                 function_name = function_call_data.name
                 function_args = json.loads(function_call_data.arguments)
-                reasoning = function_args.get("reasoning", "No reasoning provided.")
+                internal_reasoning = function_args.get("internal_reasoning", "No internal reasoning provided.")
+                public_reasoning = function_args.get("public_reasoning", "No public reasoning provided.")
+                # declare_out_of_game 에는 reasoning 만 있음
+                if function_name == "declare_out_of_game":
+                    internal_reasoning = function_args.get("reasoning", "No reasoning provided.")
+                    public_reasoning = internal_reasoning # 공개 이유와 내부 이유 동일 처리
 
-                logger.info(f"Player {self.player.name} decided to call function '{function_name}'. Reasoning: {reasoning}")
-                self.player.action_log.append(f"Turn {self.game.current_turn}: Decided '{function_name}'. Reason: {reasoning}. Args: {function_args}")
+                logger.info(f"Player {self.player.name} decided to call function '{function_name}'.")
+                logger.info(f"  - Internal Reasoning: {internal_reasoning}")
+                if function_name != "declare_out_of_game": # declare 외에는 public reasoning 로깅
+                     logger.info(f"  - Public Reasoning: {public_reasoning}")
+
+                # 로그에는 상세 정보 포함
+                self.player.action_log.append(f"Turn {self.game.current_turn}: Decided '{function_name}'. Internal Reason: {internal_reasoning}. Args: {function_args}")
 
                 # Game Handler에게 처리 위임하기 위해 dict 형태로 반환
-                return {
+                # game.py 에서는 public_reasoning 만 필요로 함
+                # 하지만 로그 등을 위해 둘 다 포함시킬 수 있음, 여기서는 일단 둘 다 포함
+                action_result = {
                     "function_name": function_name,
-                    "arguments": function_args
+                    "arguments": function_args,
+                    "internal_reasoning": internal_reasoning,
+                    "public_reasoning": public_reasoning
                 }
+                # declare_out_of_game 일 경우 reasoning을 public_reasoning으로 통일
+                if function_name == "declare_out_of_game":
+                    action_result["public_reasoning"] = internal_reasoning
+
+                return action_result
             else:
                 # 함수 호출 없이 텍스트 응답만 온 경우 (예: do_nothing을 텍스트로 말한 경우)
                 # 이 시나리오에서는 do_nothing 함수 호출을 기본으로 유도했으므로, 이 경우는 예외처리 또는 do_nothing으로 간주

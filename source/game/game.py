@@ -220,8 +220,9 @@ class Game:
             # 여기서는 단순화를 위해 상대방(AI)도 OpenAI 호출을 통해 결정한다고 가정
             # 실제 구현 시에는 비용/시간 문제로 규칙 기반 또는 더 간단한 로직 사용 가능
             logger.info(f"{player.name} proposes trade to {target_player_name}. Asking {target_player_name} for response...")
+            proposer_public_reasoning = args.get("public_reasoning", "제공된 이유 없음")
 
-            accept_trade = self.ask_trade_response(target_player, player, args) # 상대방에게 거래 수락 여부 결정 요청
+            accept_trade = self.ask_trade_response(target_player, player, args, proposer_public_reasoning) # 상대방에게 거래 수락 여부 결정 요청 (public reasoning 전달)
 
             if accept_trade:
                  # 거래 유효성 재검증 (상대방이 수락 시점에 필요한 자원을 가지고 있는지)
@@ -252,8 +253,9 @@ class Game:
 
             # --- Game Anchor: 상대방에게 게임 수락 및 카드 선택 요청 ---
             logger.info(f"{player.name} proposes a match to {target_player_name} (playing {card_to_play}). Asking {target_player_name} for response...")
+            proposer_public_reasoning = args.get("public_reasoning", "제공된 이유 없음")
 
-            target_card = self.ask_match_response(target_player, player) # 상대방에게 게임 수락 및 카드 결정 요청
+            target_card = self.ask_match_response(target_player, player, proposer_public_reasoning) # 상대방에게 게임 수락 및 카드 결정 요청 (public reasoning 전달)
 
             if target_card: # 상대방이 게임을 수락하고 카드를 선택한 경우
                 logger.info(f"{target_player_name} accepted the match and chose '{target_card}'.")
@@ -291,7 +293,7 @@ class Game:
         return True
 
 
-    def ask_trade_response(self, target_player: Player, proposing_player: Player, proposal_args: Dict[str, Any]) -> bool:
+    def ask_trade_response(self, target_player: Player, proposing_player: Player, proposal_args: Dict[str, Any], proposer_public_reasoning: str) -> bool:
         """ (Game Anchor 역할) 대상 플레이어(AI)에게 거래 제안에 대한 응답을 요청 """
         if not target_player.is_active(): return False # 응답할 수 없는 상태
 
@@ -318,6 +320,9 @@ class Game:
             - 가위 카드: {proposal_args.get('receive_scissors', 0)}장
             - 보 카드: {proposal_args.get('receive_paper', 0)}장
             - 현금: {proposal_args.get('receive_money', 0)} 엔
+
+            **제안 이유 ({proposing_player.name} 제공):**
+            {proposer_public_reasoning}
 
             ## 현재 당신의 상태 ({target_player.name})
             - 별: {target_player.stars}개
@@ -375,7 +380,7 @@ class Game:
             target_player.action_log.append(f"Turn {self.current_turn}: Failed to respond to trade from {proposing_player.name} due to API error. Defaulting to reject.")
             return False # 오류 시 안전하게 거절 처리
 
-    def ask_match_response(self, target_player: Player, proposing_player: Player) -> Optional[str]:
+    def ask_match_response(self, target_player: Player, proposing_player: Player, proposer_public_reasoning: str) -> Optional[str]:
         """ (Game Anchor 역할) 대상 플레이어(AI)에게 게임 제안에 대한 응답 및 카드 선택 요청 """
         if not target_player.is_active() or target_player.get_total_cards() == 0:
              logger.warning(f"{target_player.name} cannot respond to match: Inactive or no cards left.")
@@ -396,6 +401,9 @@ class Game:
             플레이어 '{proposing_player.name}' (별 {proposing_player.stars}개 보유) 가 당신에게 가위바위보 게임을 제안했습니다.
             승리하면 상대의 별 1개를 얻고, 패배하면 당신의 별 1개를 잃습니다. 무승부 시 변화는 없습니다.
             어떤 경우든 당신은 카드 1장을 소모하게 됩니다.
+
+            **제안 이유 ({proposing_player.name} 제공):**
+            {proposer_public_reasoning}
 
             ## 현재 당신의 상태 ({target_player.name})
             - 별: {target_player.stars}개
@@ -580,7 +588,7 @@ class Game:
         if not self.game_over: # 플레이어 행동 중 게임이 끝나지 않았다면 여기서 최종 확인
             self.check_game_end()
 
-        # 3. 현재 상황 요약 로그 (선택적)
+        # 3. 현재 상황 요약 로깅 (선택적)
         if not self.game_over:
              self.log_turn_summary()
         else:
