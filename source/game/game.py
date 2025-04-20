@@ -326,22 +326,34 @@ class Game:
             이 거래 제안을 수락하시겠습니까? 당신의 생존 목표와 현재 자원 상황, {proposing_player.name}의 의도 등을 고려하여 신중하게 판단하세요.
             반드시 'accept' 또는 'reject' 중 하나로만 응답하고, 그 이유를 간략하게 설명해주세요.
             게임의 생존을 충족했다면, 남은 자원으로 돈을 최대한으로 획득해야합니다.
-
-            **응답 형식:**
-            ```json
-            {{
-              "decision": "accept | reject",
-              "reasoning": "거래를 수락/거절하는 이유..."
-            }}
-            ```
             """}
         ]
 
+        trade_response_schema = {
+            "name": "trade_decision", # 함수 이름 (영문 유지 권장)
+            "description": "거래 제안에 대해 결정(수락/거절)과 이유를 포함하여 응답합니다.",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "decision": {
+                        "type": "string",
+                        "enum": ["accept", "reject"],
+                        "description": "거래 제안을 수락할지 거절할지 여부 ('accept' 또는 'reject')."
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "결정에 대한 이유."
+                    }
+                },
+                "required": ["decision", "reasoning"] # 필수 필드
+            }
+        }
+
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 messages=messages,
-                response_format={"type": "json_object"}, # JSON 응답 강제
+                response_format={"type": "json_schema", "json_schema": trade_response_schema}, # JSON 스키마 사용
                 temperature=0.5
             )
             decision_data = json.loads(response.choices[0].message.content)
@@ -364,6 +376,12 @@ class Game:
              logger.warning(f"{target_player.name} cannot respond to match: Inactive or no cards left.")
              return None # 게임 불가
 
+        available_cards = [card for card, count in target_player.cards.items() if count > 0]
+        if not available_cards: # 낼 카드가 없으면 거절 외 선택지 없음
+             logger.warning(f"{target_player.name} has no cards left to play. Rejecting match automatically.")
+             target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name} (no cards left).")
+             return None
+
         # 대상 플레이어에게 상황 전달 및 결정 요청
         messages = [
             {"role": "system", "content": target_player.persona_prompt + "\n\n" + self.get_game_rules_summary()},
@@ -377,55 +395,84 @@ class Game:
             - 별: {target_player.stars}개
             - 보유 카드: 바위 {target_player.cards['rock']}장, 가위 {target_player.cards['scissors']}장, 보 {target_player.cards['paper']}장 (총 {target_player.get_total_cards()}장)
             - 현금: {target_player.money} 엔
+            - 사용 가능한 카드: {', '.join(available_cards) if available_cards else '없음'}
 
             ## 당신의 결정
-            이 게임 제안을 수락하시겠습니까? 만약 수락한다면, 어떤 카드를 내시겠습니까?
+            이 게임 제안을 수락하시겠습니까? 만약 수락한다면, 어떤 카드를 내시겠습니까? ({', '.join(available_cards)} 중에서 선택)
             당신의 생존 목표, 현재 자원, {proposing_player.name}의 상태 등을 고려하여 전략적으로 판단하세요.
             거절할 수도 있습니다. 하지만, 거절을 반복할 경우 카드를 제한시간안에 소모하지 못해 게임에 패배할 수 있습니다.
-
-            **응답 형식 (JSON):**
-            - 수락 시: `{{"decision": "accept", "card_to_play": "rock | scissors | paper", "reasoning": "수락 및 카드 선택 이유..."}}`
-            - 거절 시: `{{"decision": "reject", "reasoning": "거절 이유..."}}`
-
-            반드시 위 형식 중 하나로 응답해주세요. 사용 가능한 카드가 없으면 거절해야 합니다.
             """}
         ]
 
-        available_cards = [card for card, count in target_player.cards.items() if count > 0]
-        if not available_cards: # 낼 카드가 없으면 거절 외 선택지 없음
-             logger.warning(f"{target_player.name} has no cards left to play. Rejecting match automatically.")
-             target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name} (no cards left).")
-             return None
+        match_response_schema = {
+            "name": "match_response",
+            "description": "가위바위보 게임 제안에 대한 응답 (수락/거절) 및 카드 선택.",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "decision": {
+                        "type": "string",
+                        "enum": ["accept", "reject"],
+                        "description": "게임 제안 수락 여부 ('accept' 또는 'reject')."
+                    },
+                    "card_to_play": {
+                        "type": ["string", "null"], # 거절 시 null 허용
+                        "enum": ["rock", "scissors", "paper", None], # 사용 가능한 카드 + null
+                        "description": "수락 시 낼 카드 ('rock', 'scissors', 'paper'). 거절 시에는 null 또는 생략."
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "결정에 대한 이유."
+                    }
+                },
+                "required": ["decision", "reasoning"]
+                # card_to_play는 수락 시 필수이며, 이는 코드 레벨에서 검증
+            }
+        }
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 messages=messages,
-                response_format={"type": "json_object"},
+                response_format={"type": "json_schema", "json_schema": match_response_schema}, # JSON 스키마 사용
                 temperature=0.6
             )
+            # OpenAI API는 스키마를 준수하는 JSON 문자열을 message.content에 반환
             decision_data = json.loads(response.choices[0].message.content)
             decision = decision_data.get("decision")
             reasoning = decision_data.get("reasoning", "No reasoning provided.")
-            card_choice = decision_data.get("card_to_play")
+            card_choice = decision_data.get("card_to_play") # 수락 시에도 null일 수 있음
 
             logger.info(f"{target_player.name}'s response to match proposal: {decision}. Card: {card_choice or 'N/A'}. Reasoning: {reasoning}")
 
-            if decision == "accept" and card_choice in available_cards:
-                target_player.action_log.append(f"Turn {self.current_turn}: Accepted match from {proposing_player.name}, playing '{card_choice}'. Reason: {reasoning}")
-                return card_choice
+            # 결정 및 카드 유효성 검증 강화
+            if decision == "accept":
+                if card_choice in available_cards:
+                    target_player.action_log.append(f"Turn {self.current_turn}: Accepted match from {proposing_player.name}, playing '{card_choice}'. Reason: {reasoning}")
+                    return card_choice
+                else:
+                    # 수락했지만 유효하지 않은 카드 선택 또는 카드 미선택
+                    error_reason = f"chose unavailable/missing card '{card_choice}'" if card_choice else "did not choose a card"
+                    logger.warning(f"{target_player.name} accepted match but {error_reason}. Treating as reject.")
+                    target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name} ({error_reason}). Reason: {reasoning}")
+                    return None
+            elif decision == "reject":
+                 target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name}. Reason: {reasoning}")
+                 return None
             else:
-                 if decision == "accept" and card_choice not in available_cards:
-                     logger.warning(f"{target_player.name} accepted match but chose unavailable card '{card_choice}'. Treating as reject.")
-                     target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name} (chose unavailable card '{card_choice}'). Reason: {reasoning}")
-                 else: # 명시적 reject 또는 다른 문제
-                     target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name}. Reason: {reasoning}")
-                 return None # 거절 또는 유효하지 않은 카드 선택
+                 # decision 값이 "accept" 또는 "reject"가 아닌 경우 (API 오류 또는 스키마 미준수)
+                 logger.warning(f"{target_player.name} provided invalid decision '{decision}'. Treating as reject.")
+                 target_player.action_log.append(f"Turn {self.current_turn}: Rejected match from {proposing_player.name} (invalid decision '{decision}'). Reason: {reasoning}")
+                 return None
 
+        except json.JSONDecodeError as e:
+             logger.error(f"Error decoding JSON response from {target_player.name}: {e}. Response: {response.choices[0].message.content}")
+             target_player.action_log.append(f"Turn {self.current_turn}: Failed to respond to match from {proposing_player.name} due to invalid JSON response. Defaulting to reject.")
+             return None # JSON 파싱 오류 시 거절
         except Exception as e:
             logger.error(f"Error getting match response from {target_player.name}: {e}")
             target_player.action_log.append(f"Turn {self.current_turn}: Failed to respond to match from {proposing_player.name} due to API error. Defaulting to reject.")
-            return None # 오류 시 안전하게 거절
+            return None # 기타 오류 시 안전하게 거절
 
 
     def remove_eliminated_players(self):
@@ -726,7 +773,7 @@ class Game:
         try:
             logger.info("OpenAI API 호출하여 서사 요약 생성 요청 중...")
             response = client.chat.completions.create(
-                model="gpt-4o", # 혹은 최신 GPT-4 모델
+                model="gpt-4.1", # 혹은 최신 GPT-4 모델
                 messages=[
                     {"role": "system", "content": "당신은 복잡한 게임 로그를 분석하여 흥미로운 이야기나 칼럼으로 재구성하는 뛰어난 작가입니다."},
                     {"role": "user", "content": narrative_prompt}
