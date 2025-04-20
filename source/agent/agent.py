@@ -131,7 +131,7 @@ class OpenAI_Agent:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o", # 또는 사용 가능한 최신 모델
+                model="gpt-4.1", # 또는 사용 가능한 최신 모델
                 messages=messages,
                 tools=functions_available_to_agent,
                 #tool_choice="auto", # OpenAI가 메시지에 따라 함수 호출 여부 결정

@@ -1,8 +1,8 @@
 # --- 게임 설정 ---
 INITIAL_STARS = 3
-INITIAL_CARDS_EACH_TYPE = 2
-TOTAL_PLAYERS = 3 # 시뮬레이션 규모 조절 (원작: 30)
-MAX_TURNS = 8 # 4시간 / 10분
+INITIAL_CARDS_EACH_TYPE = 3
+TOTAL_PLAYERS = 5 # 시뮬레이션 규모 조절 (원작: 30)
+MAX_TURNS = 6 * 4 # 4시간 / 10분
 TIME_PER_TURN = 10 # 분
 
 # --- 플레이어 상태 ---

@@ -9,7 +9,14 @@ if __name__ == "__main__":
     player_configurations = [
         {"name": "카이지", "persona": persona.kaiji_persona, "loan": 3000000},
         {"name": "안도", "persona": persona.ando_persona, "loan": 3000000},
-        {"name": "후루하타", "persona": persona.huruhata_persona, "loan": 3000000}
+        {"name": "후루하타", "persona": persona.huruhata_persona, "loan": 3000000},
+        {"name": "키타미", "persona": persona.kitami_persona, "loan": 3000000},
+        {"name": "후나이", "persona": persona.funai_persona, "loan": 3000000},
+#        {"name": "사카자키", "persona": persona.sakazaki_persona, "loan": 3000000},
+#        {"name": "이시다", "persona": persona.ishida_persona, "loan": 3000000},
+#        {"name": "니시노", "persona": persona.nishino_persona, "loan": 3000000},
+#        {"name": "오오츠키", "persona": persona.ohtsuki_persona, "loan": 3000000},
+#        {"name": "마키타", "persona": persona.makita_persona, "loan": 3000000},        
     ]
     if len(player_configurations) != config.TOTAL_PLAYERS:
         logger.warning(f"Number of player configurations ({len(player_configurations)}) does not match TOTAL_PLAYERS ({config.TOTAL_PLAYERS}). Adjusting TOTAL_PLAYERS.")
