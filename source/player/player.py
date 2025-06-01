@@ -17,6 +17,7 @@ class Player:
         self.status = config.PLAYER_STATUS_ACTIVE
         self.initial_loan = -initial_loan
         self.action_log = [] # 플레이어별 행동 기록
+        self.current_emotion = "No current emotion provided."
 
     def get_total_cards(self) -> int:
         return sum(self.cards.values())
@@ -44,3 +45,17 @@ class Player:
                 log_msg += f" Reason: {reason}"
             logger.info(log_msg)
             self.action_log.append(f"Status changed to {new_status}. Reason: {reason}")
+
+    def get_current_stats_prompt(self) -> str:
+        my_items = self.get_items_dict()
+        prompt = f"""
+        - 별: {my_items['star_number']}개
+        - 카드: 바위 {my_items['rock_card_number']}장, 가위 {my_items['scissors_card_number']}장, 보 {my_items['paper_card_number']}장 (총 {self.get_total_cards()}장)
+        - 현금: {my_items['money']} 엔 {'(초기 대출금 ' + str(self.initial_loan) + ' 엔 포함)' if self.initial_loan > 0 else ''}
+        - 현재 상태: {self.status}
+        """
+        return prompt
+    
+    def get_action_history(self) -> str:
+        action_history = "\n".join(self.action_log) if self.action_log else "아직 기록된 행동이 없습니다."
+        return action_history

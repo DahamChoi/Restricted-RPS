@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from custom_logger import logger
 from openai_client import client
 from config import config
+from game.game import get_stats_prompt
 import json
 from game.game import Game
 
@@ -65,59 +66,71 @@ functions_available_to_agent = [
              }
         }
     }
-    #,
-    #{
-    #    "type": "function",
-    #    "function": {
-    #        "name": "do_nothing",
-    #        "description": "이번 턴에는 아무 행동도 하지 않고 상황을 지켜봅니다.",
-    #        "parameters": {
-    #            "type": "object",
-    #            "properties": {
-    #                 "reasoning": {"type": "string", "description": "아무것도 하지 않기로 결정한 이유."}
-    #            },
-    #             "required": ["reasoning"]
-    #         }
-    #    }
-    #}
+    ,
+    {
+        "type": "function",
+        "function": {
+            "name": "do_nothing",
+            "description": "이번 턴에는 아무 행동도 하지 않고 상황을 지켜봅니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                     "internal_reasoning": {"type": "string", "description": "아무것도 하지 않기로 결정한 이유."}
+                },
+                 "required": ["internal_reasoning"]
+             }
+        }
+    }
 ]
-
+        
 # --- OpenAI Agent Class ---
 class OpenAI_Agent:
     def __init__(self, player: Player, game: 'Game'):
         self.player = player
         self.game = game
 
+        self.update_current_emotion()
+
+    def update_current_emotion(self):
+        emotion_prompt = [
+            {"role": "system", "content": self.player.persona_prompt + "\n\n" + self.game.get_game_rules_summary()},
+            {
+                "role": "system",
+                "content": (
+                    "현재 나의 기록과 상황을 읽고, 내가 지금 느낄 법한 감정을 **한 문장**으로 묘사하세요. "
+                    "반드시 한 문장만 출력하고, 불필요한 설명이나 따옴표는 넣지 마세요."
+                )
+            },
+            {
+                "role": "user",
+                "content": f"""
+                다음 기록을 참고하여 현재 감정을 한 문장으로 표현하세요
+
+                {get_stats_prompt(self.game, self.player)}
+                """
+            }
+        ]
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",   # 비용 절감을 위해 경량화 모델 사용
+            messages=emotion_prompt,
+            temperature=0          # 감정 추출이므로 0
+        )
+
+        self.player.current_emotion = response.choices[0].message.content.strip()
+        self.player.action_log.append(f"Update Current Emotion : {self.player.current_emotion}")
+        logger.info(f"Update Player {self.player.name} Emotion : {self.player.current_emotion}")
+
     def decide_action(self) -> Optional[Dict[str, Any]]:
         """OpenAI API를 호출하여 플레이어의 다음 행동을 결정합니다."""
         logger.info(f"--- {self.player.name}'s Turn ---")
 
-        # 1. 현재 상태 정보 수집
-        my_items = self.player.get_items_dict()
-        other_players_info = self.game.get_other_players_info(exclude_player_name=self.player.name)
-        dashboard_info = self.game.get_dashboard_info()
-
-        # 2. 프롬프트 구성
-        action_history = "\n".join(self.player.action_log) if self.player.action_log else "아직 기록된 행동이 없습니다."
+        # 프롬프트 구성
         messages = [
             {"role": "system", "content": self.player.persona_prompt + "\n\n" + self.game.get_game_rules_summary()},
+            {"role": "system", "content": "감정에 따라 과감한 결정을 내리십시오."},
             {"role": "user", "content": f"""
-            ## 현재 당신의 상태 ({self.player.name})
-            - 별: {my_items['star_number']}개
-            - 카드: 바위 {my_items['rock_card_number']}장, 가위 {my_items['scissors_card_number']}장, 보 {my_items['paper_card_number']}장 (총 {self.player.get_total_cards()}장)
-            - 현금: {my_items['money']} 엔 {'(초기 대출금 ' + str(self.player.initial_loan) + ' 엔 포함)' if self.player.initial_loan > 0 else ''}
-            - 현재 상태: {self.player.status}
-
-            ## 당신의 과거 행동 기록
-            {action_history}
-
-            ## 현재 게임 상황 (전광판)
-            - 생존 플레이어 수: {dashboard_info['alive_users']}명
-            - 남은 시간: {dashboard_info['remain_time']}분 ({self.game.current_turn}/{config.MAX_TURNS} 턴)
-            - 전체 남은 카드: 바위 {dashboard_info['all_rock_card_number']}, 가위 {dashboard_info['all_scissors_card_number']}, 보 {dashboard_info['all_paper_card_number']}
-
-            ## 다른 활성 플레이어 정보 (이름과 보유 별 개수만 공개됨)
-            {json.dumps(other_players_info, indent=2, ensure_ascii=False) if other_players_info else "다른 활성 플레이어가 없습니다."}
+            {get_stats_prompt(self.game, self.player)}
 
             ## 당신의 목표
             - 제한 시간 안에 카드를 모두 소진하고, 별 3개 이상을 보유하여 생존하는 것입니다.
@@ -126,8 +139,8 @@ class OpenAI_Agent:
                 - 만약 생존 조건보다 더 많은 별을 가지고 있다면 게임에 나가지 않고, 이를 다른 사람에게 팔아 이득을 취할 수도 있습니다.
             - 당신의 결정과 그 이유를 명확히 설명하고, 반드시 정의된 함수 중 하나를 호출하는 형식으로 응답해주세요.
             - **주의:** 거래나 게임 제안 시, `internal_reasoning`에는 당신의 실제 전략과 판단을 상세히 기록하고, `public_reasoning`에는 상대방에게 보여줄 간결하고 설득력 있는 메시지를 작성하세요. (예: "이 거래는 우리 모두에게 이득이 될 것입니다." 또는 "카드 소진을 위해 게임이 필요합니다.")
+            - 전략적으로 판단하여 이번 턴에 어떤 행동을 할지 결정하세요. 아무것도 하지 않을 수도 있습니다 ('do_nothing').
             """}
-            #             - 전략적으로 판단하여 이번 턴에 어떤 행동을 할지 결정하세요. 아무것도 하지 않을 수도 있습니다 ('do_nothing').
         ]
 
         logger.debug(f"Sending prompt to OpenAI for {self.player.name}:\n{json.dumps(messages, indent=2, ensure_ascii=False)}")

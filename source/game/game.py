@@ -33,6 +33,17 @@ class Game:
     def get_active_players(self) -> List[Player]:
         return [p for p in self.players.values() if p.is_active()]
 
+    def get_current_stats_prmopt(self) -> str:
+        dashboard_info = self.get_dashboard_info()
+
+        prompt = f"""
+        - 생존 플레이어 수: {dashboard_info['alive_users']}명
+        - 남은 시간: {dashboard_info['remain_time']}분 ({self.current_turn}/{config.MAX_TURNS} 턴)
+        - 전체 남은 카드: 바위 {dashboard_info['all_rock_card_number']}, 가위 {dashboard_info['all_scissors_card_number']}, 보 {dashboard_info['all_paper_card_number']}
+        """
+
+        return prompt
+
     # --- Function Implementations (Game Logic) ---
 
     def get_user_items(self, user_name: str) -> Optional[Dict[str, Any]]:
@@ -54,6 +65,11 @@ class Game:
                     # 카드 개수 등 비공개 정보는 포함하지 않음
                 })
         return info_list
+    
+    def get_other_players_info_prompt(self, exclude_player_name: str = None) -> str:
+        other_players_info = self.get_other_players_info(exclude_player_name=exclude_player_name)
+        other_players_info_prompt = {json.dumps(other_players_info, indent=2, ensure_ascii=False) if other_players_info else "다른 활성 플레이어가 없습니다."}
+        return other_players_info_prompt
 
     def get_dashboard_info(self) -> Dict[str, Any]:
         """현재 게임 전광판 현황 반환"""
@@ -128,6 +144,9 @@ class Game:
         player1.action_log.append(log_entry)
         player2.action_log.append(f"Turn {self.current_turn}: Accepted trade with {player1.name}.") # 상대방 로그에도 기록
 
+        # 감정 업데이트
+        self.agents[player2.name].update_current_emotion()
+
     def _validate_match(self, player1: Player, player2: Player, card_to_play: str) -> bool:
         """게임 유효성 검증 (플레이어 활성 상태, 카드 보유 여부)"""
         if not player1 or not player2 or not player1.is_active() or not player2.is_active():
@@ -196,6 +215,8 @@ class Game:
         player1.action_log.append(log_entry_p1)
         player2.action_log.append(log_entry_p2)
 
+        # 감정 업데이트
+        self.agents[player2.name].update_current_emotion()
 
     def handle_action(self, player_name: str, action: Dict[str, Any]):
         """플레이어의 결정된 행동을 처리 (Game Anchor 역할 일부 포함)"""
@@ -324,13 +345,7 @@ class Game:
             **제안 이유 ({proposing_player.name} 제공):**
             {proposer_public_reasoning}
 
-            ## 현재 당신의 상태 ({target_player.name})
-            - 별: {target_player.stars}개
-            - 카드: 바위 {target_player.cards['rock']}장, 가위 {target_player.cards['scissors']}장, 보 {target_player.cards['paper']}장 (총 {target_player.get_total_cards()}장)
-            - 현금: {target_player.money} 엔
-
-            ## 당신의 과거 행동 기록
-            {action_history}
+            {get_stats_prompt(self, target_player)}
 
             ## 당신의 결정
             이 거래 제안을 수락하시겠습니까? 당신의 생존 목표와 현재 자원 상황, {proposing_player.name}의 의도, 당신의 과거 행동 등을 고려하여 신중하게 판단하세요.
@@ -405,14 +420,7 @@ class Game:
             **제안 이유 ({proposing_player.name} 제공):**
             {proposer_public_reasoning}
 
-            ## 현재 당신의 상태 ({target_player.name})
-            - 별: {target_player.stars}개
-            - 보유 카드: 바위 {target_player.cards['rock']}장, 가위 {target_player.cards['scissors']}장, 보 {target_player.cards['paper']}장 (총 {target_player.get_total_cards()}장)
-            - 현금: {target_player.money} 엔
-            - 사용 가능한 카드: {', '.join(available_cards) if available_cards else '없음'}
-
-            ## 당신의 과거 행동 기록
-            {action_history_str}
+            {get_stats_prompt(self, target_player)}
 
             ## 당신의 결정
             이 게임 제안을 수락하시겠습니까? 만약 수락한다면, 어떤 카드를 내시겠습니까? ({', '.join(available_cards)} 중에서 선택)
@@ -559,6 +567,7 @@ class Game:
             player = self.get_player(player_name)
             if player and player.is_active():
                 agent = self.agents[player_name]
+
                 action = agent.decide_action() # AI가 행동 결정 (OpenAI API 호출)
 
                 if action:
@@ -568,6 +577,9 @@ class Game:
                     # 에이전트가 결정을 반환하지 못한 경우 (오류 등)
                     logger.error(f"Agent for {player_name} failed to return an action.")
                     player.action_log.append(f"Turn {self.current_turn}: Failed to get action decision.")
+
+                # 감정 업데이트
+                agent.update_current_emotion()
 
                 # 행동 후 즉시 별 개수 체크 (매치 후 바로 반영되지만, 혹시 모를 다른 상황 대비)
                 self.remove_eliminated_players()
@@ -774,3 +786,22 @@ class Game:
         except Exception as e:
             logger.error(f"서사 요약 생성 중 오류 발생: {e}")
             print("\n[AI 서사 요약 생성에 실패했습니다.]")
+
+def get_stats_prompt(game: Game, player: Player):
+    prompt = f"""
+        ## 현재 당신의 상태
+        {player.get_current_stats_prompt()}
+
+        ## 현재 감정
+        {player.current_emotion}
+
+        ## 당신의 과거 행동 기록
+        {player.get_action_history()}
+
+        ## 현재 게임 상황 (전광판)
+        {game.get_current_stats_prmopt()}
+
+        ## 다른 활성 플레이어 정보 (이름과 보유 별 개수만 공개됨)
+        {game.get_other_players_info_prompt(player.name)}
+    """
+    return prompt
